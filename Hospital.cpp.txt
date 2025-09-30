@@ -1,0 +1,170 @@
+// Hospital.cpp
+#include <iostream>
+#include <string>
+#include <vector>
+#include <memory>
+
+using namespace std;
+
+// Base Person
+class Person {
+protected:
+    int id;
+    string name;
+    string dob;
+    string phone;
+public:
+    Person(int id, const string &name, const string &dob, const string &phone)
+        : id(id), name(name), dob(dob), phone(phone) {}
+    virtual string getInfo() const {
+        return to_string(id) + " - " + name;
+    }
+    virtual ~Person() {}
+};
+
+// MedicalRecord (composition)
+class MedicalRecord {
+    int record_id;
+    string diagnosis;
+    string notes;
+public:
+    MedicalRecord(int rid, const string &diag, const string &notes)
+        : record_id(rid), diagnosis(diag), notes(notes) {}
+    string summary() const {
+        return "Record#" + to_string(record_id) + ": " + diagnosis;
+    }
+};
+
+// Patient
+class Patient : public Person {
+    string address;
+    string blood_group;
+    bool is_inpatient;
+    vector<MedicalRecord> records; // composition: records can't exist without patient
+public:
+    Patient(int id, const string &name, const string &dob, const string &phone,
+            const string &address, const string &bg, bool inpatient=false)
+        : Person(id,name,dob,phone), address(address), blood_group(bg), is_inpatient(inpatient) {}
+    void addRecord(const MedicalRecord &r) { records.push_back(r); }
+    string getSummary() const {
+        return getInfo() + ", BG=" + blood_group + ", Addr=" + address + (is_inpatient? " [Inpatient]": "");
+    }
+};
+
+// Staff (abstract)
+class Staff : public Person {
+protected:
+    string position;
+public:
+    Staff(int id, const string &name, const string &dob, const string &phone, const string &pos)
+        : Person(id,name,dob,phone), position(pos) {}
+    virtual string getRoleInfo() const = 0;
+    virtual ~Staff() {}
+};
+
+// Doctor
+class Doctor : public Staff {
+    string specialization;
+public:
+    Doctor(int id, const string &name, const string &dob, const string &phone, const string &spec)
+        : Staff(id,name,dob,phone,"Doctor"), specialization(spec) {}
+    string getRoleInfo() const override {
+        return "Dr. " + name + " (" + specialization + ")";
+    }
+};
+
+// Nurse
+class Nurse : public Staff {
+    string shift;
+public:
+    Nurse(int id, const string &name, const string &dob, const string &phone, const string &shift)
+        : Staff(id,name,dob,phone,"Nurse"), shift(shift) {}
+    string getRoleInfo() const override {
+        return "Nurse " + name + " [" + shift + "]";
+    }
+};
+
+// Department (recursive)
+class Department {
+public:
+    int id;
+    string name;
+    vector<shared_ptr<Staff>> members; // aggregation
+    vector<shared_ptr<Department>> subdepartments;
+    Department(int id, const string &name) : id(id), name(name) {}
+    void addMember(shared_ptr<Staff> s) { members.push_back(s); }
+    void addSub(shared_ptr<Department> d) { subdepartments.push_back(d); }
+    // recursive find
+    shared_ptr<Department> find(const string &target) {
+        if (name == target) return shared_from_this(); // won't compile unless enable_shared_from_this
+        for (auto &sd : subdepartments) {
+            auto f = sd->find(target);
+            if (f) return f;
+        }
+        return nullptr;
+    }
+};
+
+// workable alternative without shared_from_this:
+shared_ptr<Department> findDeptRecursive(shared_ptr<Department> root, const string &target) {
+    if (!root) return nullptr;
+    if (root->name == target) return root;
+    for (auto &sd : root->subdepartments) {
+        auto f = findDeptRecursive(sd, target);
+        if (f) return f;
+    }
+    return nullptr;
+}
+
+// Appointment connecting patient and doctor
+struct Appointment {
+    int id;
+    shared_ptr<Patient> patient;
+    shared_ptr<Doctor> doctor;
+    string datetime;
+    string status;
+};
+
+int main() {
+    cout << "Hospital OOD demo (simple)\\n\\n";
+
+    // create patients
+    auto p1 = make_shared<Patient>(1, "Aman Verma", "1995-05-12", "9876543210", "Jaipur", "B+", false);
+    auto p2 = make_shared<Patient>(2, "Riya Sharma", "2000-08-23", "9123456780", "Delhi", "A+", false);
+
+    // add medical records (composition)
+    p1->addRecord(MedicalRecord(1, "Fever", "Prescribed paracetamol"));
+    p2->addRecord(MedicalRecord(2, "Routine check", "All normal"));
+
+    // create staff
+    auto d1 = make_shared<Doctor>(1, "Ajay Mehta", "1978-02-14", "9812340001", "General Physician");
+    auto d2 = make_shared<Doctor>(2, "Priya Nair", "1982-09-20", "9812340002", "Orthopedic Surgeon");
+    auto n1 = make_shared<Nurse>(3, "Sunita Devi", "1990-01-05", "9812340003", "Night");
+
+    // Department hierarchy (aggregation)
+    auto root = make_shared<Department>(1, "Hospital");
+    auto gen = make_shared<Department>(2, "General Medicine");
+    auto ortho = make_shared<Department>(3, "Orthopedics");
+    root->addSub(gen);
+    root->addSub(ortho);
+    gen->addMember(d1);
+    ortho->addMember(d2);
+    gen->addMember(n1);
+
+    // appointments
+    Appointment a1{1,p1,d1,"2025-09-13 10:00","scheduled"};
+    Appointment a2{2,p2,d1,"2025-09-13 11:00","scheduled"};
+
+    // print info (polymorphism)
+    cout << d1->getRoleInfo() << endl;
+    cout << n1->getRoleInfo() << endl;
+    cout << p1->getSummary() << endl;
+    cout << "Appointment 1: " << a1.id << " Patient=" << a1.patient->getInfo() << " Doctor=" << a1.doctor->getRoleInfo() << endl;
+
+    // demonstrate recursion: find department
+    auto found = findDeptRecursive(root, "Orthopedics");
+    if(found) cout << "Found department: " << found->name << endl;
+    else cout << "Department not found\\n";
+
+    return 0;
+}
